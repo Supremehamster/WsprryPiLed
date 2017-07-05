@@ -17,6 +17,7 @@
 
 // ha7ilm: added RPi2 support based on a patch to PiFmRds by Cristophe
 // Jacquet and Richard Hirst: http://git.io/vn7O9
+// g0ttv: added LED flashing code - Ok on Rpi2
 
 #include <stdio.h>
 #include <string.h>
@@ -39,6 +40,7 @@
 #include <getopt.h>
 #include <vector>
 #include <iostream>
+#include <fstream>
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
@@ -174,6 +176,7 @@ volatile unsigned *peri_base_virt = NULL;
 
 // Convert from a bus address to a physical address.
 #define BUS_TO_PHYS(x) ((x)&~0xC0000000)
+#define OK_LED_CONTROL_FNAME "/sys/class/leds/led0/brightness"
 
 typedef enum {WSPR,TONE} mode_type;
 
@@ -273,6 +276,17 @@ void deallocMemPool() {
     mem_free(mbox.handle, mbox.mem_ref);
   }
 }
+
+void set_led(bool on)
+{
+    // Turn OK LED on or off
+    std::ofstream ledfile;
+    ledfile.open(OK_LED_CONTROL_FNAME);
+    if (on) ledfile << "1";
+    else ledfile << "0";
+    ledfile.close();
+}
+
 
 // Disable the PWM clock and wait for it to become 'not busy'.
 void disable_clock() {
@@ -738,6 +752,8 @@ void print_usage() {
   std::cout << "  -n --no-delay" << std::endl;
   std::cout << "    Transmit immediately, do not wait for a WSPR TX window. Used" << std::endl;
   std::cout << "    for testing only." << std::endl;
+  std::cout << "  -l --blink-led" << std::endl;
+  std::cout << "    Blink OK LED during transmission." << std::endl;
   std::cout << std::endl;
   std::cout << "Frequencies can be specified either as an absolute TX carrier frequency, or" << std::endl;
   std::cout << "using one of the following strings. If a string is used, the transmission" << std::endl;
@@ -764,7 +780,8 @@ void parse_commandline(
   double & test_tone,
   bool & no_delay,
   mode_type & mode,
-  int & terminate
+  int & terminate,
+  bool & blink_led
 ) {
   // Default values
   ppm=0;
@@ -775,6 +792,7 @@ void parse_commandline(
   no_delay=false;
   mode=WSPR;
   terminate=-1;
+  blink_led=false;
 
   static struct option long_options[] = {
     {"help",             no_argument,       0, 'h'},
@@ -786,13 +804,14 @@ void parse_commandline(
     {"offset",           no_argument,       0, 'o'},
     {"test-tone",        required_argument, 0, 't'},
     {"no-delay",         no_argument,       0, 'n'},
+    {"blink-led",        no_argument,       0, 'l'},
     {0, 0, 0, 0}
   };
 
   while (true) {
     /* getopt_long stores the option index here. */
     int option_index = 0;
-    int c = getopt_long (argc, argv, "hp:sfrx:ot:n",
+    int c = getopt_long (argc, argv, "hp:sfrx:ot:nl",
                      long_options, &option_index);
     if (c == -1)
       break;
@@ -849,6 +868,9 @@ void parse_commandline(
         break;
       case 'n':
         no_delay=true;
+        break;
+      case 'l':
+        blink_led=true;
         break;
       case '?':
         /* getopt_long already printed an error message. */
@@ -1149,6 +1171,7 @@ int main(const int argc, char * const argv[]) {
   bool no_delay;
   mode_type mode;
   int terminate;
+  bool blink_led;
   parse_commandline(
     argc,
     argv,
@@ -1163,7 +1186,8 @@ int main(const int argc, char * const argv[]) {
     test_tone,
     no_delay,
     mode,
-    terminate
+    terminate,
+    blink_led
   );
   int nbands=center_freq_set.size();
 
@@ -1234,7 +1258,9 @@ int main(const int argc, char * const argv[]) {
     printf("\n");
     */
 
-    std::cout << "Ready to transmit (setup complete)..." << std::endl;
+    if (blink_led) set_led(false); /* turn led off initially */    
+
+std::cout << "Ready to transmit (setup complete)..." << std::endl;
     int band=0;
     int n_tx=0;
     for(;;) {
@@ -1294,8 +1320,11 @@ int main(const int argc, char * const argv[]) {
         struct timeval sym_start;
         struct timeval diff;
         int bufPtr=0;
+        bool led_toggle=true;
         txon();
         for (int i = 0; i < 162; i++) {
+          if (blink_led) set_led(led_toggle);
+          led_toggle ^= true;
           gettimeofday(&sym_start,NULL);
           timeval_subtract(&diff, &sym_start, &tvBegin);
           double elapsed=diff.tv_sec+diff.tv_usec/1e6;
@@ -1319,7 +1348,7 @@ int main(const int argc, char * const argv[]) {
         timeval_print(&tvEnd);
         timeval_subtract(&tvDiff, &tvEnd, &tvBegin);
         printf(" (%ld.%03ld s)\n", tvDiff.tv_sec, (tvDiff.tv_usec+500)/1000);
-
+        if (blink_led) set_led(false);
       } else {
         std::cout << "  Skipping transmission" << std::endl;
         usleep(1000000);
