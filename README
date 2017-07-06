@@ -8,6 +8,12 @@ Compatible with the original Raspberry Pi, the Raspberry Pi 2/3, and
 the Pi Zero.
 
 !!!!!!
+5th July 2017 Added LED flashing code from Federico Ceratto (RPi2 OK).
+See https://github.com/JamesP6000/WsprryPi/pull/3
+!!!!!!
+
+
+!!!!!!
 2017-04-21
 Do note that some users have been reporting lockups with recent OS versions.
 I have not been able to reproduce the problems on my RPI1 and RPI3 running
